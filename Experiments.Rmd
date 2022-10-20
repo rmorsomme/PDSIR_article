@@ -1,0 +1,176 @@
+---
+title: "Experiments"
+author: "Raphael Morsomme"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+This file contains the code necessary to run the simulations presented in the manuscript. Running all experiments with the settings used in the manuscript takes around 12 hours, with *Experiment 3* taking the longest (10 hours). To reduce the running time, one can run a single simulation or decreasing the number of MCMC draws from 1 million to 100,000.
+
+## Installation of R package PDSIR
+
+```{r package}
+devtools::install_github("rmorsomme/PDSIR")
+library(PDSIR)
+```
+
+## Creation of paths for figures and mcmc draws for the various experiments
+
+```{r}
+path_figure <- "Output/Figures/"
+path_data   <- "Output/RDATA/"
+
+# Experiment 1
+path_figure_E1 <- paste0(path_figure, "E1")
+path_data_E1   <- paste0(path_data  , "E1")
+
+# Experiment 2
+path_figure_E2 <- paste0(path_figure, "E2")
+
+# Experiment 3
+path_figure_E3 <- paste0(path_figure, "E3")
+path_data_E3   <- paste0(path_data  , "E3")
+
+# Experiment 4
+path_data_E4   <- paste0(path_data  , "E4")
+
+# Experiment 5
+path_figure_E5 <- paste0(path_figure, "E5")
+path_data_E5   <- paste0(path_data  , "E5")
+
+# Experiment 6
+path_figure_E6_joint  <- paste0(path_figure, "E6/joint")
+path_figure_E6_single <- paste0(path_figure, "E6/single")
+path_data_E6          <- paste0(path_data  , "E6")
+
+# Miscellaneous
+path_figure_misc <- paste0(path_figure, "misc")
+```
+
+
+
+## Simulation studies
+
+### Experiments 1 -- proof of concept
+
+```{r}
+set.seed(0)
+output_E1 <- experiment_1_proof_of_concept(
+  N = 1e6, iota_dist = "weibull", theta_0_factor = 0.1,
+  path = path_figure_E1, plot_id = "E1"
+  )
+
+summary_E1_short <- experiment_1_output_analysis(
+  output_E1, iota_dist = "weibull",
+  plot_id = "E1_short", path = path_figure_E1,
+  burnin = 1e3, n_max = 1e4
+)
+summary_E1 <- experiment_1_output_analysis(
+  output_E1, iota_dist = "weibull",
+  plot_id = "E1", path = path_figure_E1,
+  burnin = 1e4
+)
+
+#
+# Output of interest
+print(output_E1$Y$T_k)                   # observed infection counts
+print(output_E1$MC$run_time)             # running time
+print(output_E1$MC$rate_accept)          # M-H acceptance rate
+print(summary_E1$summary_burn$ESS)       # effective sample size
+print(summary_E1$summary_burn$post_stat) # summary statistics of posterior draws
+
+save(output_E1, file = paste0(path_data_E1, "/mcmc.RDATA"))
+```
+
+
+### Experiment 2 -- comparison of the SIR and PD-SIR processes
+
+```{r}
+set.seed(0)
+experiment_2_PDSIR_trajectories(path = path_figure_E2)
+```
+
+
+### Experiment 3 -- impact of rho on mixing
+
+```{r}
+set.seed(0)
+output_E3 <- experiment_3_acceptance_vs_rho(
+  N = 1e6, iota_dist = "weibull",
+  S0s = c(250, 500, 1000), R0s = c(2.2, 2.5, 3)
+  )
+
+experiment_3_output_analysis(
+  output_E3, path = path_figure_E3
+  )
+
+save(output_E3, file = paste0(path_data_E3, "/mcmc.RDATA"))
+```
+
+
+### Experiment 4 -- frequentist coverage
+
+The following code chunk is designed to be run on Slurm as an array with, say, 200 tasks. Its output is already present in the directory `r path_data_E4` for simplicity. Note that the code can easily be modified to be run as a for-loop in R. The second code chunk processes the result of the 2000 simulations (200 tasks with m=10 simulations each).
+
+```{r, eval=FALSE}
+a <- as.integer(Sys.getenv("SLURM_ARRAY_TASK_ID")) # index value for array on Slurm
+output_E4 <- experiment_4_coverage(
+  N = 1e6, m = 10, thin = 1, a = a
+)
+save(output_E4, file = paste0(path_data_E4, "/E4_", a, ".RDATA"))
+```
+
+
+
+```{r}
+load("Output/RDATA/E4/E4_1.RDATA")
+results <- output_E4
+for(a in 2 : 200) { # 200 realizations of the previous code chunk
+  load(paste0(path_data_E4, "/E4_", a, ".RDATA"))
+  results <- rbind(results, output_E4)
+}
+
+summary_E4 <- experiment_4_output_analysis(results, path = path_figure_E4)
+print(summary_E4, 2)
+```
+
+
+### Experiment 6 -- comparison of the block and single-site samplers
+
+```{r}
+set.seed(0)
+output_E6_single <- experiment_6_single_site_update(
+  N = 1e6, save_fig = FALSE, thin = 10, iota_dist = "weibull"
+  )
+
+set.seed(0) # use same seed to ensure that same observed data are used
+output_E6_joint  <- experiment_1_proof_of_concept(
+  N = 1e6, save_fig = FALSE, thin = 10, rho = 1/10, iota_dist = "weibull"
+  )
+
+save(output_E6_single, file = paste0(path_data_E6, "/mcmc_single.RDATA"))
+save(output_E6_joint, file = paste0(path_data_E6, "/mcmc_joint.RDATA"))
+```
+
+## Case study -- Ebola 2013-2016
+
+```{r}
+set.seed(0)
+output_E5 <- experiment_5_ebola(
+  N = 1e6, rho = 0.2, thin = 10,
+  iota_dist = "weibull",
+  path_data = "Input/Ebola/Guinea_modified.csv"
+  )
+save(output_E5, file = paste0(path_data_E5, "/mcmc.RDATA"))
+
+print(output_E5$MC$run_time) # run time
+output_E5$MC$rate_accept     # M-H acceptance rate
+```
+
+## Miscellaneous
+
+```{r}
+draw_mu   (path = path_figure_misc)
+draw_gamma(path = path_figure_misc)
+```
+
